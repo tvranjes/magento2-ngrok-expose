@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Magento 2 ngrok expose script
+
+# Check if user is positioned in Magento 2 directory
+magento_check=$(php bin/magento --version)
+if [[ "${magento_check}" != *"Magento CLI 2"* ]]; then
+    printf "\n\e[01;31m [Error] Magento 2 instance not found. \n"
+    printf "\n Are You positioned in Your Magento 2 project root?"
+    printf "\n Is Your Magento 2 instance properly installed?"
+    printf "\n Is Your local web server running?"
+    printf "\n Is Your local DB server running? \n\n"
+    exit
+fi
+
+# Check if input is correct and set action
+case $1 in
+    start)
+        ngrok_action="start"
+        ;;
+    stop)
+        ngrok_action="stop"
+        ;;
+    *)
+        printf "\n\e[01;31m [Error] Argument not valid. Use < start | stop > \n\n"
+        exit
+        ;;
+esac
+
+# Define ngroktemp directory needed for installation
+ngroktemp_dir="$HOME/.ngroktemp"
+
+# Check if local n98-magerun2 exists and install if not
+if [[ ! -f "/usr/local/bin/n98-magerun2" ]]; then
+    printf "\n [Info] Downloading and setting up n98-magerun2... \n\n"
+    wget -P ${ngroktemp_dir} https://files.magerun.net/n98-magerun2.phar
+    chmod +x ${ngroktemp_dir}/n98-magerun2.phar
+    mv ${ngroktemp_dir}/n98-magerun2.phar  ${ngroktemp_dir}/n98-magerun2
+    sudo mv ${ngroktemp_dir}/n98-magerun2 /usr/local/bin/
+fi
+
+# Check if local ngrok exists and install if not
+if [[ ! -f "/usr/local/bin/ngrok" ]]; then
+    printf "\n [Info] Downloading and setting up ngrok... \n\n"
+    wget -P ${ngroktemp_dir} https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
+    unzip ${ngroktemp_dir}/ngrok-stable-linux-amd64.zip -d ${ngroktemp_dir} > /dev/null
+    chmod +x ${ngroktemp_dir}/ngrok
+    sudo mv ${ngroktemp_dir}/ngrok /usr/local/bin/
+fi
+
+# Update paths for n98-magerun2 and ngrok
+if [[ -f "$HOME/.bashrc" ]]; then
+    source $HOME/.bashrc
+fi
+
+# Check if ngrok config exist and create it if not
+if [[ ! -f "$HOME/.ngrok2/ngrok.yml" ]]; then
+    read -p "Enter Your ngrok auth token (From https://dashboard.ngrok.com/): " token
+    ngrok authtoken ${token}
+fi
+
+# Run stop action
+if [[ ${ngrok_action} == "stop" ]]; then
+    ngrok_instance=$(pidof ngrok)
+    if [[ ! -z ${ngrok_instance} ]]; then
+        killall ngrok
+        if [[ -f "$HOME/.ngrok2/project_url" ]]; then
+            project_url="$(cat $HOME/.ngrok2/project_url)"
+            printf "\n [Info] Reverting project URL... \n"
+            n98-magerun2 config:store:set web/unsecure/base_url ${project_url} > /dev/null
+            n98-magerun2 config:store:set web/unsecure/base_link_url ${project_url} > /dev/null
+            n98-magerun2 config:store:set web/secure/base_url ${project_url} > /dev/null
+            n98-magerun2 config:store:set web/secure/base_link_url ${project_url} > /dev/null
+            n98-magerun2 config:store:set web/unsecure/base_static_url ${project_url}/static/ > /dev/null
+            n98-magerun2 config:store:set web/secure/base_static_url ${project_url}/static/ > /dev/null
+            n98-magerun2 config:store:set web/unsecure/base_media_url ${project_url}/media/ > /dev/null
+            n98-magerun2 config:store:set web/secure/base_media_url ${project_url}/media/ > /dev/null
+            rm "$HOME/.ngrok2/project_url"
+            printf " [Info] Cleaning cache... \n"
+            php bin/magento cache:clean
+            printf " [Info] Done. \n\n"
+            exit
+        fi
+    else
+        printf "\n [Info] No active ngrok instance found. No action required. \n\n"
+        exit
+    fi
+fi
+
+# Run start action
+if [[ ${ngrok_action} == "start" ]];then
+    printf "\n [Info] Starting ngrok... \n"
+    ngrok http 80 &> /dev/null &
+    # Wait for ngrok start
+    until [[ ! -z $(pidof ngrok) ]]
+    do
+        sleep 1
+    done
+    printf " [Info] Running temporary ngrok URL setup... \n"
+    generated_ngrok_url=$(curl --silent http://localhost:4040/api/tunnels | sed -nE 's/.*public_url":"https:..([^"]*).*/\1/p')
+    ngrok_url="https://${generated_ngrok_url}"
+    n98-magerun2 config:store:set web/unsecure/base_url ${ngrok_url} > /dev/null
+    n98-magerun2 config:store:set web/unsecure/base_link_url ${ngrok_url} > /dev/null
+    n98-magerun2 config:store:set web/secure/base_url ${ngrok_url} > /dev/null
+    n98-magerun2 config:store:set web/secure/base_link_url ${ngrok_url} > /dev/null
+    n98-magerun2 config:store:set web/unsecure/base_static_url ${ngrok_url}/static/ > /dev/null
+    n98-magerun2 config:store:set web/secure/base_static_url ${ngrok_url}/static/ > /dev/null
+    n98-magerun2 config:store:set web/unsecure/base_media_url ${ngrok_url}/media/ > /dev/null
+    n98-magerun2 config:store:set web/secure/base_media_url ${ngrok_url}/media/ > /dev/null
+    printf " [Info] Cleaning cache... \n"
+    php bin/magento cache:clean
+    printf " [Info] Done. \n\n"
+    printf " [Info] Your current ngrok URL is ${ngrok_url} \n\n"
+fi
+
+# Remove ngroktemp directory
+if [[ -d ${ngroktemp_dir} ]]; then
+    rm -rf ${ngroktemp_dir}
+fi
+
+exit
