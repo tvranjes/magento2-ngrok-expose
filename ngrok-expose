@@ -64,7 +64,7 @@ if [[ ${ngrok_action} == "stop" ]]; then
     if [[ ! -z ${ngrok_instance} ]]; then
         killall ngrok
         if [[ -f "$HOME/.ngrok2/project_url" ]]; then
-            project_url="$(cat $HOME/.ngrok2/project_url)"
+            project_url="$(head -n 1 $HOME/.ngrok2/project_url)"
             printf "\n [Info] Reverting project URL... \n"
             n98-magerun2 config:store:set web/unsecure/base_url ${project_url} > /dev/null
             n98-magerun2 config:store:set web/unsecure/base_link_url ${project_url} > /dev/null
@@ -98,6 +98,7 @@ if [[ ${ngrok_action} == "start" ]];then
     printf " [Info] Running temporary ngrok URL setup... \n"
     generated_ngrok_url=$(curl --silent http://localhost:4040/api/tunnels | sed -nE 's/.*public_url":"https:..([^"]*).*/\1/p')
     ngrok_url="https://${generated_ngrok_url}"
+    n98-magerun2 sys:url:list > $HOME/.ngrok2/project_url
     n98-magerun2 config:store:set web/unsecure/base_url ${ngrok_url} > /dev/null
     n98-magerun2 config:store:set web/unsecure/base_link_url ${ngrok_url} > /dev/null
     n98-magerun2 config:store:set web/secure/base_url ${ngrok_url} > /dev/null
